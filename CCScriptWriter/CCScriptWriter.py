@@ -1,6 +1,6 @@
 #! /usr/bin/env python
 # CCScriptWriter
-# Extracts the dialogue from EarthBound and outputs it into a CCScript file.
+# Extracts the dialogue from Mother 2 and outputs it into a CCScript file.
 
 import argparse
 import array
@@ -13,31 +13,31 @@ import time
 import yaml
 from functools import reduce
 
-
+ 
 #############
 # CONSTANTS #
 #############
 
 D = [0x45, 0x41, 0x52, 0x54, 0x48, 0x20, 0x42, 0x4f, 0x55, 0x4E, 0x44]
 
-TEXT_DATA = [[0x50000, 0x51b12],    # SRE_POINTER_TABLE
-             [0x51b12, 0x57fc1],    # TEXT_DATA (1)
-             [0x58000, 0x5ffec],    # TEXT_DATA (2)
-             [0x60000, 0x67eec],    # TEXT_DATA (3)
-             [0x68000, 0x6ffe3],    # TEXT_DATA (4)
-             [0x70000, 0x77f00],    # TEXT_DATA (5)
-             [0x78000, 0x7ff40],    # TEXT_DATA (6)
-             [0x80000, 0x87f23],    # TEXT_DATA (7)
-             [0x88000, 0x8bc2d],    # TEXT_DATA (8)
-             [0x8d9ed, 0x8fff3],    # TEXT_DATA_2 (1)
-             [0x90000, 0x97fb3],    # TEXT_DATA_2 (2)
-             [0x98000, 0x9ff2f],    # TEXT_DATA_2 (3)
-             [0x210000, 0x21064a],  # COFFEE_SEQUENCE_TEXT
-             [0x210652, 0x210b7e],  # TEA_SEQUENCE_TEXT
-             [0x21413f, 0x214de8],  # STAFF_TEXT
-             [0x210b86, 0x210c7a],  # MOVEMENT_TEXT_STRINGS
-             [0x2f4e20, 0x2fa37a]]  # TEXT_DATA_EF4A40
-COMPRESSED_TEXT_PTRS = 0x8cded
+TEXT_DATA = [[0x605F9, 0x6210B], #0x50000, 0x51b12    # SRE_POINTER_TABLE
+             [0x6210B, 0x5FE4C], #0x51b12, 0x57fc1    # TEXT_DATA (1)
+             [0x7C43F, 0x5FE4D], #0x58000, 0x5ffec    # TEXT_DATA (2)
+             [0x6D107, 0x6FB86], #0x60000, 0x67eec    # TEXT_DATA (3)
+             [0x90000, 0x6FB86], #0x68000, 0x6ffe3    # TEXT_DATA (4)
+             [0x89D0C, 0x72955], #0x70000, 0x77f00    # TEXT_DATA (5)
+             [0x5173E, 0x7FC11], #0x78000, 0x7ff40    # TEXT_DATA (6)
+             [0x68000, 0x87977], #0x80000, 0x87f23    # TEXT_DATA (7)
+             [0x538A0, 0x89D0B], #0x88000, 0x8bc2d    # TEXT_DATA (8)
+             [0x65EC0, 0x8FEDE], #0x8d9ed, 0x8fff3    # TEXT_DATA_2 (1)
+             [0x78000, 0x97F64], #0x90000, 0x97fb3    # TEXT_DATA_2 (2)
+             [0x5E584, 0x9E2A1], #0x98000, 0x9ff2f    # TEXT_DATA_2 (3)
+             [0x211602, 0x211B14], #0x210000, 0x21064a  # COFFEE_SEQUENCE_TEXT
+             [0x211B1C, 0x21207D], #0x210652, 0x210b7e  # TEA_SEQUENCE_TEXT
+             [0x213596, 0x21423E], #0x21413f, 0x214de8  # STAFF_TEXT
+             [0x212085, 0x21213E], #0x210b86, 0x210c7a  # MOVEMENT_TEXT_STRINGS
+             [0x8BFCC, 0x9DD30]] #0x2f4e20, 0x2fa37a # TEXT_DATA_EF4A40
+#COMPRESSED_TEXT_PTRS = 0x8cded <- M2 doesn't seem to have this.
 
 CONTROL_CODES = {0x00: 0, 0x01: 0, 0x02: 0, 0x03: 0, 0x04: 2, 0x05: 2, 0x06: 6,
                  0x07: 2, 0x08: 4, 0x09: None, 0x0a: 4, 0x0b: 1, 0x0c: 1,
@@ -88,10 +88,10 @@ COILSNAKE_POINTERS = ["Text Address", "Death Text Pointer",
                       "Delivery Failure Text Pointer",
                       "Delivery Success Text Pointer", "Pointer"]
 
-SPECIAL_POINTERS = [0x49ea4, 0x49ea8, 0x49eac, 0x49eb0, 0x49eb4, 0x49eb8,
-                    0x49ebc, 0x49ec0, 0xcffd5]
+SPECIAL_POINTERS = [0x4737C, 0x47380, 0x47384, 0x47388, 0x4738C, 0x47390, 
+                    0x47394, 0x47398, 0xCF728] #0x49ea4, 0x49ea8, 0x49eac, 0x49eb0, 0x49eb4, 0x49eb8, 0x49ebc, 0x49ec0, 0xcffd5
 
-ASM_POINTERS = [0x49dbd, 0x49dc9, 0x4f252]
+ASM_POINTERS = [0x47291, 0x4729D, 0x4C28E] #0x49dbd, 0x49dc9, 0x4f252
 
 HEADER = """/*
  * EarthBound Text Dump
@@ -317,7 +317,7 @@ class CCScriptWriter:
 
             # Replace compressed text.
             if not self.raw:
-                b = re.sub(r"\[(15|16|17) (\w\w)\]", self.replaceCompressedText,
+                b = re.sub(r"\[(15|16|17) (\w\w)\]", #self.replaceCompressedText,
                            b)
 
             # Replace all pointers with their label form.
@@ -623,20 +623,20 @@ class CCScriptWriter:
         except:
             return 0
 
-    # Replaces the compressed text control codes with their values.
-    def replaceCompressedText(self, matchObj):
+    # # Replaces the compressed text control codes with their values.
+    # def replaceCompressedText(self, matchObj):
 
-        bank = int(matchObj.groups()[0], 16) - 0x15
-        idx = int(matchObj.groups()[1], 16)
-        p = COMPRESSED_TEXT_PTRS + (bank * 0x100 + idx) * 4
-        pointer = self.data[p:p + 4]
-        pointer.reverse()
-        pointer = int(reduce(lambda x, y: (x << 8) | y, pointer)) - 0xc00000
-        returnString = ""
-        while self.data[pointer] != 0:
-            returnString += chr(self.data[pointer] - 0x30)
-            pointer += 1
-        return returnString
+    #     bank = int(matchObj.groups()[0], 16) - 0x15
+    #     idx = int(matchObj.groups()[1], 16)
+    #     p = COMPRESSED_TEXT_PTRS + (bank * 0x100 + idx) * 4
+    #     pointer = self.data[p:p + 4]
+    #     pointer.reverse()
+    #     pointer = int(reduce(lambda x, y: (x << 8) | y, pointer)) - 0xc00000
+    #     returnString = ""
+    #     while self.data[pointer] != 0:
+    #         returnString += chr(self.data[pointer] - 0x30)
+    #         pointer += 1
+    #     return returnString
 
     # Replaces the control code's pointer(s) with labels instead.
     def replaceWithLabel(self, matchObj):
