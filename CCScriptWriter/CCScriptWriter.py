@@ -32,7 +32,8 @@ class TextType(Enum):
 
 VERSION = f"v{version('CCScriptWriter')}"
 
-D = [0x45, 0x41, 0x52, 0x54, 0x48, 0x20, 0x42, 0x4f, 0x55, 0x4E, 0x44]
+EARTHBOUND_ROM_NAME = list(b'EARTH BOUND'.ljust(21))
+MOTHER2_ROM_NAME = list(b'MOTHER-2'.ljust(21))
 
 TEXT_DATA = [[0x50000, 0x51b12],    # SRE_POINTER_TABLE
              [0x51b12, 0x57fc1],    # TEXT_DATA (1)
@@ -265,13 +266,14 @@ def test_ToSNES():
 
 class CCScriptWriter:
 
-    def __init__(self, romFile, outputDirectory, raw=False, splitjumps=False):
+    def __init__(self, romFile, outputDirectory, raw=False, splitjumps=False, mother2=False):
 
         # Declare our variables.
         self.asmPointers = {}
-        self.data = array.array("B")
+        self.data = None
         self.dialogue = {}
         self.dataFiles = {}
+        self.mother2 = mother2
         self.outputDirectory = outputDirectory
         self.pointers = []
         self.raw = raw
@@ -279,13 +281,15 @@ class CCScriptWriter:
         self.specialPointers = {}
 
         # Get the data from the ROM file.
-        self.data.fromfile(romFile, int(os.path.getsize(romFile.name)))
+        romData = array.array("B")
+        romData.fromfile(romFile, int(os.path.getsize(romFile.name)))
 
         # Check for a headered HiROM.
         try:
             if ~self.data[0x101dc] & 0xff == self.data[0x101de] \
               and ~self.data[0x101dd] & 0xff == self.data[0x101df] \
-              and self.data[0xffc0+0x200:0xffc0 + 0x200 + len(D)].tolist() == D:
+              and (self.data[0xffc0+0x200:0xffc0 + 0x200 + len(EARTHBOUND_ROM_NAME)].tolist()
+                   == EARTHBOUND_ROM_NAME):
                 self.data = self.data[0x200:]
             romFile.close()
         except IndexError:
@@ -295,7 +299,8 @@ class CCScriptWriter:
         try:
             if ~self.data[0x81dc] & 0xff == self.data[0x81de] \
               and ~self.data[0x81dd] & 0xff == self.data[0x81df] \
-              and self.data[0xffc0+0x200:0xffc0 + 0x200 + len(D)].tolist() == D:
+              and (self.data[0xffc0+0x200:0xffc0 + 0x200 + len(EARTHBOUND_ROM_NAME)].tolist()
+                   == EARTHBOUND_ROM_NAME):
                 self.data = self.data[0x200:]
         except IndexError:
             pass
@@ -870,6 +875,9 @@ def main():
         parser.add_argument("-s", "--splitjumps", help="starts a new block whenever "
                             "a (potential) jump is encountered, so that the end of "
                             "any started block is guaranteed to be reached", action="store_true")
+        parser.add_argument("--mother2", help="run against a Japanese MOTHER "
+                            "2 ROM instead of a US Earthbound ROM",
+                            action="store_true")
         args = parser.parse_args()
 
         # Run the program.
@@ -877,7 +885,7 @@ def main():
             output = os.path.join(args.output, "ccscript")
         else:
             output = args.output
-        writer = CCScriptWriter(args.rom, output, args.raw, args.splitjumps)
+        writer = CCScriptWriter(args.rom, output, args.raw, args.splitjumps, args.mother2)
         writer.loadDialogue(args.coilsnake)
         writer.processDialogue()
         writer.outputDialogue(args.coilsnake)
