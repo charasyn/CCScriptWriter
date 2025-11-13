@@ -76,6 +76,7 @@ CHARACTER_MAP = {
     0x5B: ':',
     0x5C: '・',
     0x5D: '…',
+    0x5E: '[5E]',
     0x5F: '.',
     0x60: 'あ',
     0x61: 'ぁ',
@@ -219,6 +220,7 @@ CHARACTER_MAP = {
     0xEB: 'ペ',
     0xEC: 'メ',
     0xED: 'ン',
+    0xEE: '[EE]',
     0xEF: 'レ',
     0xF0: 'オ',
     0xF1: 'ォ',
@@ -240,23 +242,21 @@ CHARACTER_MAP = {
 
 D = [0x45, 0x41, 0x52, 0x54, 0x48, 0x20, 0x42, 0x4f, 0x55, 0x4E, 0x44]
 
-TEXT_DATA = [[0x605F9, 0x6210B], #0x50000, 0x51b12    # SRE_POINTER_TABLE
-             [0x6210B, 0x5FE4C], #0x51b12, 0x57fc1    # TEXT_DATA (1)
-             [0x7C43F, 0x5FE4D], #0x58000, 0x5ffec    # TEXT_DATA (2)
-             [0x6D107, 0x6FB86], #0x60000, 0x67eec    # TEXT_DATA (3)
-             [0x90000, 0x6FB86], #0x68000, 0x6ffe3    # TEXT_DATA (4)
-             [0x89D0C, 0x72955], #0x70000, 0x77f00    # TEXT_DATA (5)
-             [0x5173E, 0x7FC11], #0x78000, 0x7ff40    # TEXT_DATA (6)
-             [0x68000, 0x87977], #0x80000, 0x87f23    # TEXT_DATA (7)
-             [0x538A0, 0x89D0B], #0x88000, 0x8bc2d    # TEXT_DATA (8)
-             [0x65EC0, 0x8FEDE], #0x8d9ed, 0x8fff3    # TEXT_DATA_2 (1)
-             [0x78000, 0x97F64], #0x90000, 0x97fb3    # TEXT_DATA_2 (2)
-             [0x5E584, 0x9E2A1], #0x98000, 0x9ff2f    # TEXT_DATA_2 (3)
-             [0x211602, 0x211B14], #0x210000, 0x21064a  # COFFEE_SEQUENCE_TEXT
-             [0x211B1C, 0x21207D], #0x210652, 0x210b7e  # TEA_SEQUENCE_TEXT
-             [0x213596, 0x21423E], #0x21413f, 0x214de8  # STAFF_TEXT
-             [0x212085, 0x21213E], #0x210b86, 0x210c7a  # MOVEMENT_TEXT_STRINGS
-             [0x8BFCC, 0x9DD30]] #0x2f4e20, 0x2fa37a # TEXT_DATA_EF4A40
+# TODO - Add remaining pointers (flyover text, etc) here
+#      - I also commented out the stuff that processes SPECIAL_POINTERS and ASM_POINTERS.
+#      - Handle flyover text format a lot nicer (may need compiler changes idk)
+TEXT_DATA = [
+    [0x050000, 0x057FA7],
+    [0x058000, 0x05FE4D],
+    [0x060000, 0x067C03],
+    [0x068000, 0x06FB86],
+    [0x070000, 0x077FE1],
+    [0x078000, 0x07FC11],
+    [0x080000, 0x087E85],
+    [0x088000, 0x08FEDE],
+    [0x090000, 0x097F65],
+    [0x098000, 0x09E2A1],
+]
 #COMPRESSED_TEXT_PTRS = 0x8cded <- M2 doesn't seem to have this.
 
 CONTROL_CODES = {0x00: 0, 0x01: 0, 0x02: 0, 0x03: 0, 0x04: 2, 0x05: 2, 0x06: 6,
@@ -416,10 +416,10 @@ class CCScriptWriter:
         for section in TEXT_DATA:
             i = section[0]
             dataType = 0
-            if section[0] == 0x210000 or section[0] == 0x210652 \
-              or section[0] == 0x210b86:
+            if section[0] == 0x211602 or section[0] == 0x211B1C \
+              or section[0] == 0x212085:
                 dataType = 1
-            elif section[0] == 0x21413f:
+            elif section[0] == 0x213596:
                 dataType = 2
             while i < section[1]:
                 block = i + 0xc00000
@@ -496,35 +496,35 @@ class CCScriptWriter:
         for k, block in enumerate(sorted(self.dialogue)):
             self.dataFiles[block] = "data_{0:0>2}".format(k // 100)
 
-        # Add special pointer locations.
-        for p in SPECIAL_POINTERS:
-            address = ""
-            i = p
-            while i < p + 4:
-                address += " {}".format(FormatHex(self.data[i]))
-                i += 1
-            address = FromSNES(address)
-            m = self.dataFiles[address]
-            h = hex(address)
-            self.specialPointers[p] = "[{{e({}.l_{})}}]".format(m, h)
-        for a in ASM_POINTERS:
-            if self.data[a + 3] == 0x85:
-                address = FromSNES("{} {} {} {}".format(
-                                   FormatHex(self.data[a + 1]),
-                                   FormatHex(self.data[a + 2]),
-                                   FormatHex(self.data[a + 6]),
-                                   FormatHex(self.data[a + 7])))
-                t = 0
-            elif self.data[a + 3] == 0x8d:
-                address = FromSNES("{} {} {} {}".format(
-                                   FormatHex(self.data[a + 1]),
-                                   FormatHex(self.data[a + 2]),
-                                   FormatHex(self.data[a + 7]),
-                                   FormatHex(self.data[a + 8])))
-                t = 1
-            m = self.dataFiles[address]
-            h = hex(address)
-            self.asmPointers[a] = ["{}.l_{}".format(m, h), t]
+        # # Add special pointer locations.
+        # for p in SPECIAL_POINTERS:
+        #     address = ""
+        #     i = p
+        #     while i < p + 4:
+        #         address += " {}".format(FormatHex(self.data[i]))
+        #         i += 1
+        #     address = FromSNES(address)
+        #     m = self.dataFiles[address]
+        #     h = hex(address)
+        #     self.specialPointers[p] = "[{{e({}.l_{})}}]".format(m, h)
+        # for a in ASM_POINTERS:
+        #     if self.data[a + 3] == 0x85:
+        #         address = FromSNES("{} {} {} {}".format(
+        #                            FormatHex(self.data[a + 1]),
+        #                            FormatHex(self.data[a + 2]),
+        #                            FormatHex(self.data[a + 6]),
+        #                            FormatHex(self.data[a + 7])))
+        #         t = 0
+        #     elif self.data[a + 3] == 0x8d:
+        #         address = FromSNES("{} {} {} {}".format(
+        #                            FormatHex(self.data[a + 1]),
+        #                            FormatHex(self.data[a + 2]),
+        #                            FormatHex(self.data[a + 7]),
+        #                            FormatHex(self.data[a + 8])))
+        #         t = 1
+        #     m = self.dataFiles[address]
+        #     h = hex(address)
+        #     self.asmPointers[a] = ["{}.l_{}".format(m, h), t]
 
     # Performs various replacements on the dialogue blocks.
     def processDialogue(self):
@@ -536,9 +536,9 @@ class CCScriptWriter:
             b = "\"{}\"".format(b)
 
             # Replace compressed text.
-            if not self.raw:
-                b = re.sub(r"\[(15|16|17) (\w\w)\]", #self.replaceCompressedText,
-                           b)
+            # if not self.raw:
+                # b = re.sub(r"\[(15|16|17) (\w\w)\]", #self.replaceCompressedText,
+                        #    b)
 
             # Replace all pointers with their label form.
             for p in PATTERNS:
@@ -723,27 +723,38 @@ class CCScriptWriter:
                         raise RuntimeError("Unknown character in script: {}".format(hex(c))) from e
             elif dataType == 1:
                 # End of text block.
+                # (I assume...)
                 if c == 0x00:
                     block += "[ 00 ]"
                     break
-                # Move the text over a distance noted by XX.
-                elif c == 0x01:
-                    block += "[ 01 {} ]".format(FormatHex(self.data[i]))
+                
+                # Text character (flyover encoding)
+                elif c == 0x80:
+                    block += " {{short 0x80{}}} ".format(FormatHex(self.data[i]))
                     i += 1
-                # Move the text down a distance noted by XX.
-                elif c == 0x02:
-                    block += "[ 02 {} ]".format(FormatHex(self.data[i]))
-                    i += 1
-                # Print the name of character XX (01 = Ness, XX[1,4]).
-                elif c == 0x08:
-                    block += "[ 08 {} ]".format(FormatHex(self.data[i]))
-                    i += 1
-                # Drop down one line.
-                elif c == 0x09:
-                    block += "[ 09 ]"
-                # Looks like it's a normal character.
+                
+                # Everything else is control codes I guess
                 else:
-                    block += chr(c - 0x30)
+                    block += "[ {} ]".format(FormatHex(c))
+                
+                # # Move the text over a distance noted by XX.
+                # elif c == 0x01:
+                #     block += "[ 01 {} ]".format(FormatHex(self.data[i]))
+                #     i += 1
+                # # Move the text down a distance noted by XX.
+                # elif c == 0x02:
+                #     block += "[ 02 {} ]".format(FormatHex(self.data[i]))
+                #     i += 1
+                # # Print the name of character XX (01 = Ness, XX[1,4]).
+                # elif c == 0x08:
+                #     block += "[ 08 {} ]".format(FormatHex(self.data[i]))
+                #     i += 1
+                # # Drop down one line.
+                # elif c == 0x09:
+                #     block += "[ 09 ]"
+                # # Looks like it's a normal character.
+                # else:
+                #     block += chr(c - 0x30)
             elif dataType == 2:
                 if c in (0x00, 0x01, 0x02, 0x04, 0xff):
                     if not text:
