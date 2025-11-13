@@ -6,6 +6,7 @@ Extracts the dialogue from EarthBound and outputs it into a CCScript file.
 
 import argparse
 import array
+from dataclasses import dataclass
 from enum import Enum
 from functools import reduce
 from importlib.metadata import version
@@ -16,6 +17,8 @@ import sys
 import time
 
 import yaml
+
+from typing import Dict, List, Optional, Tuple
 
 ##############
 # DATA TYPES #
@@ -32,153 +35,183 @@ class TextType(Enum):
 
 VERSION = f"v{version('CCScriptWriter')}"
 
-EARTHBOUND_ROM_NAME = list(b'EARTH BOUND'.ljust(21))
+@dataclass
+class RomType:
+    romName: bytes
+    textDataRegions: List[Tuple[int, int]]
+    compressedTextPtrs: int
+    specialPointers: List[int]
+    asmPointers: List[int]
+    controlCodeLengthTable: Dict[int, Optional[int]]
+    branchingCodeRe: 're.Pattern[str]'
+    # TODO: what does this do?? why "PATTERNS"
+    patterns: List[str]
+    replacements: List[Tuple[str, str]]
+    reReplacementPatterns: 'List[re.Pattern[str]]'
+    reReplacementTargets: Dict[str, str]
+
 MOTHER2_ROM_NAME = list(b'MOTHER-2'.ljust(21))
 
-TEXT_DATA = [[0x50000, 0x51b12],    # SRE_POINTER_TABLE
-             [0x51b12, 0x57fc1],    # TEXT_DATA (1)
-             [0x58000, 0x5ffec],    # TEXT_DATA (2)
-             [0x60000, 0x67eec],    # TEXT_DATA (3)
-             [0x68000, 0x6ffe3],    # TEXT_DATA (4)
-             [0x70000, 0x77f00],    # TEXT_DATA (5)
-             [0x78000, 0x7ff40],    # TEXT_DATA (6)
-             [0x80000, 0x87f23],    # TEXT_DATA (7)
-             [0x88000, 0x8bc2d],    # TEXT_DATA (8)
-             [0x8d9ed, 0x8fff3],    # TEXT_DATA_2 (1)
-             [0x90000, 0x97fb3],    # TEXT_DATA_2 (2)
-             [0x98000, 0x9ff2f],    # TEXT_DATA_2 (3)
-             [0x210000, 0x21064a],  # COFFEE_SEQUENCE_TEXT
-             [0x210652, 0x210b7e],  # TEA_SEQUENCE_TEXT
-             [0x21413f, 0x214de8],  # STAFF_TEXT
-             [0x210b86, 0x210c7a],  # MOVEMENT_TEXT_STRINGS
-             [0x2f4e20, 0x2fa37a]]  # TEXT_DATA_EF4A40
-COMPRESSED_TEXT_PTRS = 0x8cded
-
-CONTROL_CODES = {0x00: 0, 0x01: 0, 0x02: 0, 0x03: 0, 0x04: 2, 0x05: 2, 0x06: 6,
+EB_ROMTYPE = RomType(
+    romName=b'EARTH BOUND'.ljust(21),
+    textDataRegions=[
+        (0x50000, 0x51b12),    # SRE_POINTER_TABLE
+        (0x51b12, 0x57fc1),    # TEXT_DATA (1)
+        (0x58000, 0x5ffec),    # TEXT_DATA (2)
+        (0x60000, 0x67eec),    # TEXT_DATA (3)
+        (0x68000, 0x6ffe3),    # TEXT_DATA (4)
+        (0x70000, 0x77f00),    # TEXT_DATA (5)
+        (0x78000, 0x7ff40),    # TEXT_DATA (6)
+        (0x80000, 0x87f23),    # TEXT_DATA (7)
+        (0x88000, 0x8bc2d),    # TEXT_DATA (8)
+        (0x8d9ed, 0x8fff3),    # TEXT_DATA_2 (1)
+        (0x90000, 0x97fb3),    # TEXT_DATA_2 (2)
+        (0x98000, 0x9ff2f),    # TEXT_DATA_2 (3)
+        (0x210000, 0x21064a),  # COFFEE_SEQUENCE_TEXT
+        (0x210652, 0x210b7e),  # TEA_SEQUENCE_TEXT
+        (0x21413f, 0x214de8),  # STAFF_TEXT
+        (0x210b86, 0x210c7a),  # MOVEMENT_TEXT_STRINGS
+        (0x2f4e20, 0x2fa37a),  # TEXT_DATA_EF4A40
+    ],
+    compressedTextPtrs=0x8cded,
+    specialPointers=[0x49ea4, 0x49ea8, 0x49eac, 0x49eb0, 0x49eb4, 0x49eb8,
+                    0x49ebc, 0x49ec0, 0xcffd5],
+    asmPointers=[0x49dbd, 0x49dc9, 0x4f252],
+    controlCodeLengthTable={0x00: 0, 0x01: 0, 0x02: 0, 0x03: 0, 0x04: 2, 0x05: 2, 0x06: 6,
                  0x07: 2, 0x08: 4, 0x09: None, 0x0a: 4, 0x0b: 1, 0x0c: 1,
                  0x0d: 1, 0x0e: 1, 0x0f: 0, 0x10: 1, 0x11: 0, 0x12: 0, 0x13: 0,
                  0x14: 0, 0x15: 1, 0x16: 1, 0x17: 1, 0x18: None, 0x19: None,
                  0x1a: None, 0x1b: None, 0x1c: None, 0x1d: None, 0x1e: None,
                  0x1f: None, 0x20: 0, 0x21: 0, 0x22: 0, 0x23: 0, 0x24: 0,
                  0x25: 0, 0x26: 0, 0x27: 0, 0x28: 0, 0x29: 0, 0x2a: 0, 0x2b: 0,
-                 0x2c: 0, 0x2d: 0, 0x2e: 0, 0x2f: 0, 0x30: 0}
+                 0x2c: 0, 0x2d: 0, 0x2e: 0, 0x2f: 0, 0x30: 0},
 
-# per JTolmar
-BRANCHING_CODES_RE = re.compile(r'\[(?:0[69]|1B 0[23]|1F C0)')
+    # per JTolmar
+    branchingCodeRe=re.compile(r'\[(?:0[69]|1B 0[23]|1F C0)'),
+    patterns=[
+        r"\[(06 \w\w \w\w )(\w\w \w\w \w\w \w\w)]",
+        r"\[(08 )(\w\w \w\w \w\w \w\w)]",
+        r"\[(09 \w\w)(( \w\w \w\w \w\w \w\w)+)\]",
+        r"\[(0A )(\w\w \w\w \w\w \w\w)\]",
+        r"\[(1A 0[0|1])(( \w\w \w\w \w\w \w\w)+)( \w\w)\]",
+        r"\[(1B 0[2|3] )(\w\w \w\w \w\w \w\w)\]",
+        r"\[(1F 63 )(\w\w \w\w \w\w \w\w)\]",
+        r"\[(1F C0 \w\w)(( \w\w \w\w \w\w \w\w)+)\]",
+    ],
+    replacements=[
+        ("[13][02]\"", "\" end"),
+        ("[03][00]", "\" next\n\""),
+        ("[00]", "\" linebreak\n\""),
+        ("[01]", "\" newline\n\""),
+        ("[02]\"", "\" eob"),
+        ("[1C 08 01]  ", "{smash}",),
+        ("[1C 08 02]  ", "{youwon}",),
+        (" \"\"", ""),
+        (" \"\" ", " "),
+        (" \"\"", ""),
+        ("\"\" ", ""),
+    ],
+    reReplacementPatterns=[
+        # no parameters
+        re.compile(r"\[(0D 0[01]|0F|1[234]|18 0[046A]|1B 0[014]|1C 0[4DEF]|"
+                    r"1F (?:01 02|0[356]|3[01]|B0))\]"),
+        # flag parameter
+        re.compile(r"\[(0[4|5|7]) (\w\w \w\w)\]"),
+        # one parameter
+        re.compile(r"\[(0[BCE]|10|18 0[13]|1C 0[01256]|1C 12|"
+                    r"1F (?:00 00|0[247]|1[12D]|21|41|67|E5|EC FF)) (\w\w)\]"),
+        # 1F EB xx 06
+        re.compile(r"\[(1F EB) (\w\w) 06\]"),
+        # two parameters
+        re.compile(r"\[(18 05|1D 0[015]|1E 0[0-8A-E]|1F (?:13|20|71|81|EC)) (\w\w) (\w\w)\]"),
+    ],
+    reReplacementTargets={
+        # no parameters
+        "0D 00":    "{{rtoarg}}",
+        "0D 01":    "{{ctoarg}}",
+        "0F":       "{{inc}}",
+        "12":       "{{clearline}}",
+        "13":       "{{wait}}",
+        "14":       "{{prompt}}",
+        "18 00":    "{{window_closetop}}",
+        "18 04":    "{{window_closeall}}",
+        "18 06":    "{{window_clear}}",
+        "18 0A":    "{{open_wallet}}",
+        "1B 00":    "{{store_registers}}",
+        "1B 01":    "{{load_registers}}",
+        "1B 04":    "{{swap}}",
+        "1C 04":    "{{open_hp}}",
+        "1C 0D":    "{{user}}",
+        "1C 0E":    "{{target}}",
+        "1C 0F":    "{{delta}}",
+        "1F 01 02": "{{music_stop}}",
+        "1F 03":    "{{music_resume}}",
+        "1F 05":    "{{music_switching_off}}",
+        "1F 06":    "{{music_switching_on}}",
+        "1F 30":    "{{font_normal}}",
+        "1F 31":    "{{font_saturn}}",
+        "1F B0":    "{{save}}",
 
-PATTERNS = [r"\[(06 \w\w \w\w )(\w\w \w\w \w\w \w\w)]",
-            r"\[(08 )(\w\w \w\w \w\w \w\w)]",
-            r"\[(09 \w\w)(( \w\w \w\w \w\w \w\w)+)\]",
-            r"\[(0A )(\w\w \w\w \w\w \w\w)\]",
-            r"\[(1A 0[0|1])(( \w\w \w\w \w\w \w\w)+)( \w\w)\]",
-            r"\[(1B 0[2|3] )(\w\w \w\w \w\w \w\w)\]",
-            r"\[(1F 63 )(\w\w \w\w \w\w \w\w)\]",
-            r"\[(1F C0 \w\w)(( \w\w \w\w \w\w \w\w)+)\]"]
-REPLACE = [["[13][02]\"", "\" end"], ["[03][00]", "\" next\n\""],
-           ["[00]", "\" linebreak\n\""], ["[01]", "\" newline\n\""],
-           ["[02]\"", "\" eob"], ["[1C 08 01]  ", "{smash}",],
-           ["[1C 08 02]  ", "{youwon}",],
-           [" \"\"", ""], [" \"\" ", " "], [" \"\"", ""], ["\"\" ", ""]]
-RE_REPLACE = [
-    # no parameters
-    re.compile(r"\[(0D 0[01]|0F|1[234]|18 0[046A]|1B 0[014]|1C 0[4DEF]|"
-                  r"1F (?:01 02|0[356]|3[01]|B0))\]"),
-    # flag parameter
-    re.compile(r"\[(0[4|5|7]) (\w\w \w\w)\]"),
-    # one parameter
-    re.compile(r"\[(0[BCE]|10|18 0[13]|1C 0[01256]|1C 12|"
-                  r"1F (?:00 00|0[247]|1[12D]|21|41|67|E5|EC FF)) (\w\w)\]"),
-    # 1F EB xx 06
-    re.compile(r"\[(1F EB) (\w\w) 06\]"),
-    # two parameters
-    re.compile(r"\[(18 05|1D 0[015]|1E 0[0-8A-E]|1F (?:13|20|71|81|EC)) (\w\w) (\w\w)\]"),
-]
-RE_REPLACE_TARGETS = {
-    # no parameters
-    "0D 00":    "{{rtoarg}}",
-    "0D 01":    "{{ctoarg}}",
-    "0F":       "{{inc}}",
-    "12":       "{{clearline}}",
-    "13":       "{{wait}}",
-    "14":       "{{prompt}}",
-    "18 00":    "{{window_closetop}}",
-    "18 04":    "{{window_closeall}}",
-    "18 06":    "{{window_clear}}",
-    "18 0A":    "{{open_wallet}}",
-    "1B 00":    "{{store_registers}}",
-    "1B 01":    "{{load_registers}}",
-    "1B 04":    "{{swap}}",
-    "1C 04":    "{{open_hp}}",
-    "1C 0D":    "{{user}}",
-    "1C 0E":    "{{target}}",
-    "1C 0F":    "{{delta}}",
-    "1F 01 02": "{{music_stop}}",
-    "1F 03":    "{{music_resume}}",
-    "1F 05":    "{{music_switching_off}}",
-    "1F 06":    "{{music_switching_on}}",
-    "1F 30":    "{{font_normal}}",
-    "1F 31":    "{{font_saturn}}",
-    "1F B0":    "{{save}}",
+        # flag
+        "04":       "{{set(flag {})}}",
+        "05":       "{{unset(flag {})}}",
+        "07":       "{{isset(flag {})}}",
 
-    # flag
-    "04":       "{{set(flag {})}}",
-    "05":       "{{unset(flag {})}}",
-    "07":       "{{isset(flag {})}}",
+        # one parameter
+        "0B":       "{{result_is({})}}",
+        "0C":       "{{result_not({})}}",
+        "0E":       "{{counter({})}}",
+        "10":       "{{pause({})}}",
+        "18 01":    "{{window_open({})}}",
+        "18 03":    "{{window_switch({})}}",
+        "1C 00":    "{{text_color({})}}",
+        "1C 01":    "{{stat({})}}",
+        "1C 02":    "{{name({})}}",
+        "1C 05":    "{{itemname({})}}",
+        "1C 06":    "{{teleportname({})}}",
+        "1C 12":    "{{psiname({})}}",
+        "1F 00 00": "{{music({})}}",
+        "1F 02":    "{{sound({})}}",
+        "1F 04":    "{{text_blips({})}}",
+        "1F 07":    "{{music_effect({})}}",
+        "1F 11":    "{{party_add({})}}",
+        "1F 12":    "{{party_remove({})}}",
+        "1F 1D":    "{{hide_char_float({})}}",
+        "1F 21":    "{{warp({})}}",
+        "1F 41":    "{{event({})}}",
+        "1F 67":    "{{hotspot_off({})}}",
+        "1F E5":    "{{lock_movement({})}}",
+        "1F EC FF": "{{show_party({})}}",
 
-    # one parameter
-    "0B":       "{{result_is({})}}",
-    "0C":       "{{result_not({})}}",
-    "0E":       "{{counter({})}}",
-    "10":       "{{pause({})}}",
-    "18 01":    "{{window_open({})}}",
-    "18 03":    "{{window_switch({})}}",
-    "1C 00":    "{{text_color({})}}",
-    "1C 01":    "{{stat({})}}",
-    "1C 02":    "{{name({})}}",
-    "1C 05":    "{{itemname({})}}",
-    "1C 06":    "{{teleportname({})}}",
-    "1C 12":    "{{psiname({})}}",
-    "1F 00 00": "{{music({})}}",
-    "1F 02":    "{{sound({})}}",
-    "1F 04":    "{{text_blips({})}}",
-    "1F 07":    "{{music_effect({})}}",
-    "1F 11":    "{{party_add({})}}",
-    "1F 12":    "{{party_remove({})}}",
-    "1F 1D":    "{{hide_char_float({})}}",
-    "1F 21":    "{{warp({})}}",
-    "1F 41":    "{{event({})}}",
-    "1F 67":    "{{hotspot_off({})}}",
-    "1F E5":    "{{lock_movement({})}}",
-    "1F EC FF": "{{show_party({})}}",
+        # 1F EB xx 06
+        "1F EB":    "{{hide_char({})}}",
 
-    # 1F EB xx 06
-    "1F EB":    "{{hide_char({})}}",
-
-    # two-argument
-    "18 05":    "{{text_pos({}, {})}}",
-    "1D 00":    "{{give({}, {})}}",
-    "1D 01":    "{{take({}, {})}}",
-    "1D 05":    "{{hasitem({}, {})}}",
-    "1E 00":    "{{heal_percent({}, {})}}",
-    "1E 01":    "{{hurt_percent({}, {})}}",
-    "1E 02":    "{{heal({}, {})}}",
-    "1E 03":    "{{hurt({}, {})}}",
-    "1E 04":    "{{recoverpp_percent({}, {})}}",
-    "1E 05":    "{{consumepp_percent({}, {})}}",
-    "1E 06":    "{{recoverpp({}, {})}}",
-    "1E 07":    "{{consumepp({}, {})}}",
-    "1E 08":    "{{change_level({}, {})}}",
-    "1E 0A":    "{{boost_iq({}, {})}}",
-    "1E 0B":    "{{boost_guts({}, {})}}",
-    "1E 0C":    "{{boost_speed({}, {})}}",
-    "1E 0D":    "{{boost_vitality({}, {})}}",
-    "1E 0E":    "{{boost_luck({}, {})}}",
-    "1F 13":    "{{char_direction({}, {})}}",
-    "1F 20":    "{{teleport({}, {})}}",
-    "1F EC":    "{{show_char({}, {})}}",
-    "1F 71":    "{{learnpsi({}, {})}}",
-    "1F 81":    "{{usable({}, {})}}",
-}
+        # two-argument
+        "18 05":    "{{text_pos({}, {})}}",
+        "1D 00":    "{{give({}, {})}}",
+        "1D 01":    "{{take({}, {})}}",
+        "1D 05":    "{{hasitem({}, {})}}",
+        "1E 00":    "{{heal_percent({}, {})}}",
+        "1E 01":    "{{hurt_percent({}, {})}}",
+        "1E 02":    "{{heal({}, {})}}",
+        "1E 03":    "{{hurt({}, {})}}",
+        "1E 04":    "{{recoverpp_percent({}, {})}}",
+        "1E 05":    "{{consumepp_percent({}, {})}}",
+        "1E 06":    "{{recoverpp({}, {})}}",
+        "1E 07":    "{{consumepp({}, {})}}",
+        "1E 08":    "{{change_level({}, {})}}",
+        "1E 0A":    "{{boost_iq({}, {})}}",
+        "1E 0B":    "{{boost_guts({}, {})}}",
+        "1E 0C":    "{{boost_speed({}, {})}}",
+        "1E 0D":    "{{boost_vitality({}, {})}}",
+        "1E 0E":    "{{boost_luck({}, {})}}",
+        "1F 13":    "{{char_direction({}, {})}}",
+        "1F 20":    "{{teleport({}, {})}}",
+        "1F EC":    "{{show_char({}, {})}}",
+        "1F 71":    "{{learnpsi({}, {})}}",
+        "1F 81":    "{{usable({}, {})}}",
+    }
+)
 
 COILSNAKE_FILES = ["attract_mode_txt.yml", "battle_action_table.yml",
                    "enemy_configuration_table.yml", "map_doors.yml",
@@ -192,10 +225,6 @@ COILSNAKE_POINTERS = ["Text Address", "Death Text Pointer",
                       "Delivery Failure Text Pointer",
                       "Delivery Success Text Pointer", "Pointer"]
 
-SPECIAL_POINTERS = [0x49ea4, 0x49ea8, 0x49eac, 0x49eb0, 0x49eb4, 0x49eb8,
-                    0x49ebc, 0x49ec0, 0xcffd5]
-
-ASM_POINTERS = [0x49dbd, 0x49dc9, 0x4f252]
 
 HEADER = f"""/*
  * EarthBound Text Dump
@@ -259,6 +288,8 @@ def test_ToSNES():
     assert ToSNES(0x0100_0000) == '00 00 00 01'
     assert ToSNES(0xcafe_f00d) == '0D F0 FE CA'
 
+
+
 ##################
 # CCScriptWriter #
 ##################
@@ -266,6 +297,7 @@ def test_ToSNES():
 
 class CCScriptWriter:
 
+    # pylint: disable=too-many-arguments
     def __init__(self, romFile, outputDirectory, raw=False, splitjumps=False, mother2=False):
 
         # Declare our variables.
