@@ -21,7 +21,11 @@ from functools import reduce
 # Based on Coop's M2 ccc fork
 CHARACTER_MAP = {
     0x20: ' ',
+    0x23: '$',
+    0x24: '[24]',
     0x25: 'ー',
+    0x26: '〜',
+    0x27: '/',
     0x28: '!',
     0x29: '?',
     0x2A: 'α',
@@ -29,7 +33,7 @@ CHARACTER_MAP = {
     0x2C: 'γ',
     0x2D: 'Σ',
     0x2E: 'Ω',
-    0x2F: '/',
+    0x2F: '[2F]',
     0x30: '0',
     0x31: '1',
     0x32: '2',
@@ -46,7 +50,7 @@ CHARACTER_MAP = {
     0x3D: '」',
     0x3E: '♪',
     0x3F: '○',
-    0x40: '•',
+    0x40: '@',
     0x41: 'A',
     0x42: 'B',
     0x43: 'C',
@@ -75,9 +79,9 @@ CHARACTER_MAP = {
     0x5A: 'Z',
     0x5B: ':',
     0x5C: '・',
-    0x5D: '…',
-    0x5E: '[5E]',
-    0x5F: '.',
+    0x5D: '‥',
+    0x5E: '.',
+    0x5F: '。',
     0x60: 'あ',
     0x61: 'ぁ',
     0x62: 'か',
@@ -220,7 +224,7 @@ CHARACTER_MAP = {
     0xEB: 'ペ',
     0xEC: 'メ',
     0xED: 'ン',
-    0xEE: '[EE]',
+    0xEE: 'ヲ',
     0xEF: 'レ',
     0xF0: 'オ',
     0xF1: 'ォ',
@@ -264,9 +268,7 @@ CONTROL_CODES = {0x00: 0, 0x01: 0, 0x02: 0, 0x03: 0, 0x04: 2, 0x05: 2, 0x06: 6,
                  0x0d: 1, 0x0e: 1, 0x0f: 0, 0x10: 1, 0x11: 0, 0x12: 0, 0x13: 0,
                  0x14: 0, 0x15: 1, 0x16: 1, 0x17: 1, 0x18: None, 0x19: None,
                  0x1a: None, 0x1b: None, 0x1c: None, 0x1d: None, 0x1e: None,
-                 0x1f: None, 0x20: 0, 0x21: 0, 0x22: 0, 0x23: 0, 0x24: 0,
-                 0x25: 0, 0x26: 0, 0x27: 0, 0x28: 0, 0x29: 0, 0x2a: 0, 0x2b: 0,
-                 0x2c: 0, 0x2d: 0, 0x2e: 0, 0x2f: 0, 0x30: 0}
+                 0x1f: None}
 
 PATTERNS = [r"\[(06 \w\w \w\w )(\w\w \w\w \w\w \w\w)]",
             r"\[(08 )(\w\w \w\w \w\w \w\w)]",
@@ -637,7 +639,13 @@ class CCScriptWriter:
                     if not pointers:
                         continue
                     for k, v in pointers.items():
-                        f = self.dataFiles[v]
+                        try:
+                            f = self.dataFiles[v]
+                        except KeyError:
+                            raise ValueError(
+                                f"While processing {fileName} entry {e}, couldn't find a data CCS "
+                                f"file containing `l_{hex(v)}. Are you decompiling to an "
+                                "unmodified project?")
                         yamlData[e][k] = "{}.l_{}".format(f, hex(v))
             else:
                 p = "Text Pointer"
@@ -656,7 +664,13 @@ class CCScriptWriter:
                             if not pointers:
                                 continue
                             for a, b in pointers.items():
-                                f = self.dataFiles[b]
+                                try:
+                                    f = self.dataFiles[b]
+                                except KeyError:
+                                    raise ValueError(
+                                        f"While processing {fileName} sector {e}.{s} door {n}, "
+                                        f"couldn't find a data CCS file containing 'l_{hex(b)}'. "
+                                        "Is this a valid label?")
                                 yamlData[e][s][n][a] = "{}.l_{}".format(f,
                                                                         hex(b))
             csFile = open(os.path.join(o, fileName), "w", encoding="utf-8")
@@ -686,7 +700,7 @@ class CCScriptWriter:
             # Is it a normal block?
             if dataType == 0:
                 # Check if it's a control code.
-                if c <= 0x30:
+                if c < 0x20:
                     code = CONTROL_CODES[c]
                     if isinstance(code, int):
                         length = code
