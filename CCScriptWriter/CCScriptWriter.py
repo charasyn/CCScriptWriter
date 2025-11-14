@@ -430,13 +430,13 @@ class CCScriptWriter:
             o = os.path.join(self.outputDirectory, os.path.pardir)
             project = os.path.join(o, "Project.snake")
             try:
-                with open(project) as f: pass
+                with open(project, "r", encoding="utf-8") as f: pass
             except IOError:
                 print("Failed to open \"{}\". Invalid CoilSnake project. "
                       "Aborting.".format(project))
                 sys.exit(1)
             for fileName in COILSNAKE_FILES:
-                csFile = open(os.path.join(o, fileName), "r")
+                csFile = open(os.path.join(o, fileName), "r", encoding="utf-8")
                 yamlData = yaml.load(csFile, Loader=yaml.CSafeLoader)
                 csFile.close()
                 if fileName != "map_doors.yml":
@@ -621,7 +621,7 @@ class CCScriptWriter:
         print("Modifying CoilSnake project...")
         o = os.path.join(self.outputDirectory, os.path.pardir)
         for fileName in COILSNAKE_FILES:
-            csFile = open(os.path.join(o, fileName), "r")
+            csFile = open(os.path.join(o, fileName), "r", encoding="utf-8")
             yamlData = yaml.load(csFile, Loader=yaml.CSafeLoader)
             if fileName != "map_doors.yml":
                 for e, v in yamlData.items():
@@ -659,7 +659,7 @@ class CCScriptWriter:
                                 f = self.dataFiles[b]
                                 yamlData[e][s][n][a] = "{}.l_{}".format(f,
                                                                         hex(b))
-            csFile = open(os.path.join(o, fileName), "w")
+            csFile = open(os.path.join(o, fileName), "w", encoding="utf-8")
             output = yaml.dump(yamlData, default_flow_style=False,
                       Dumper=yaml.CSafeDumper)
             output = re.sub("Event Flag: (\d+)",
