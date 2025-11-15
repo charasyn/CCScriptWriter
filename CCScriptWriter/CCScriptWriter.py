@@ -260,7 +260,7 @@ TEXT_DATA = [
     [0x088000, 0x08FEDE],
     [0x090000, 0x097F65],
     [0x098000, 0x09DD30],
-    [0x09E27C, 0x09E2A1],
+    [0x09E27C, 0x09E2A0],
 ]
 #COMPRESSED_TEXT_PTRS = 0x8cded <- M2 doesn't seem to have this.
 
