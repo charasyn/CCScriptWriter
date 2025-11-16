@@ -18,7 +18,9 @@ import time
 
 import yaml
 
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
+
+from CCScriptWriter.M2Encoding import M2_CHARACTER_MAP
 
 ##############
 # DATA TYPES #
@@ -39,6 +41,7 @@ VERSION = f"v{version('CCScriptWriter')}"
 class RomType:
     romName: bytes
     textDataRegions: List[Tuple[int, int]]
+    dataTypeOverride: Dict[int, TextType]
     compressedTextPtrs: int
     specialPointers: List[int]
     asmPointers: List[int]
@@ -49,8 +52,14 @@ class RomType:
     replacements: List[Tuple[str, str]]
     reReplacementPatterns: 'List[re.Pattern[str]]'
     reReplacementTargets: Dict[str, str]
+    byteToEncodedCharacter: Callable[[int, TextType], str]
 
-MOTHER2_ROM_NAME = list(b'MOTHER-2'.ljust(21))
+MOTHER2_ROM_NAME = b'MOTHER-2'.ljust(21)
+
+def ebTextEncoding(c: int, _type: TextType) -> str:
+    if c in {0x52, 0x8b, 0x8c, 0x8d} or c <= 0x30:
+        return f"[{FormatHex(c)}]"
+    return chr(c - 0x30)
 
 EB_ROMTYPE = RomType(
     romName=b'EARTH BOUND'.ljust(21),
@@ -73,6 +82,12 @@ EB_ROMTYPE = RomType(
         (0x210b86, 0x210c7a),  # MOVEMENT_TEXT_STRINGS
         (0x2f4e20, 0x2fa37a),  # TEXT_DATA_EF4A40
     ],
+    dataTypeOverride={
+        0x210000: TextType.Coffee,
+        0x210652: TextType.Coffee,
+        0x210b86: TextType.Coffee,
+        0x21413f: TextType.Staff,
+    },
     compressedTextPtrs=0x8cded,
     specialPointers=[0x49ea4, 0x49ea8, 0x49eac, 0x49eb0, 0x49eb4, 0x49eb8,
                     0x49ebc, 0x49ec0, 0xcffd5],
@@ -210,7 +225,8 @@ EB_ROMTYPE = RomType(
         "1F EC":    "{{show_char({}, {})}}",
         "1F 71":    "{{learnpsi({}, {})}}",
         "1F 81":    "{{usable({}, {})}}",
-    }
+    },
+    byteToEncodedCharacter=ebTextEncoding
 )
 
 COILSNAKE_FILES = ["attract_mode_txt.yml", "battle_action_table.yml",
@@ -302,57 +318,45 @@ class CCScriptWriter:
 
         # Declare our variables.
         self.asmPointers = {}
-        self.data = None
+        self.data = array.array("B")
         self.dialogue = {}
         self.dataFiles = {}
-        self.mother2 = mother2
+        self.romType = EB_ROMTYPE if mother2 else EB_ROMTYPE
         self.outputDirectory = outputDirectory
         self.pointers = []
         self.raw = raw
         self.splitjumps = splitjumps
         self.specialPointers = {}
+        if mother2:
+            raise NotImplementedError
 
         # Get the data from the ROM file.
-        romData = array.array("B")
-        romData.fromfile(romFile, int(os.path.getsize(romFile.name)))
+        self.data.fromfile(romFile, int(os.path.getsize(romFile.name)))
 
         # Check for a headered HiROM.
         try:
-            if ~self.data[0x101dc] & 0xff == self.data[0x101de] \
-              and ~self.data[0x101dd] & 0xff == self.data[0x101df] \
-              and (self.data[0xffc0+0x200:0xffc0 + 0x200 + len(EARTHBOUND_ROM_NAME)].tolist()
-                   == EARTHBOUND_ROM_NAME):
+            if self.validateRomHeader(self.data[0x200:]):
                 self.data = self.data[0x200:]
             romFile.close()
         except IndexError:
             pass
 
-        # Check for a headered LoROM.
-        try:
-            if ~self.data[0x81dc] & 0xff == self.data[0x81de] \
-              and ~self.data[0x81dd] & 0xff == self.data[0x81df] \
-              and (self.data[0xffc0+0x200:0xffc0 + 0x200 + len(EARTHBOUND_ROM_NAME)].tolist()
-                   == EARTHBOUND_ROM_NAME):
-                self.data = self.data[0x200:]
-        except IndexError:
-            pass
+        if not self.validateRomHeader(self.data):
+            raise ValueError("Invalid ROM.")
 
-        if self.data is None:
-            print("Invalid EarthBound ROM. Aborting.")
-            sys.exit(1)
+    def validateRomHeader(self, data: array.array) -> bool:
+        romName = self.romType.romName
+        return (~self.data[0xffdc] & 0xff == self.data[0xffde] and
+                ~self.data[0xffdd] & 0xff == self.data[0xffdf] and
+                data[0xffc0:0xffc0 + len(romName)].tobytes() == romName)
 
     # Loads the dialogue from the text banks in the ROM.
     def loadDialogue(self, loadCoilSnake=False):
-
         # Start looping over every block in the dialogue.
         print("Loading dialogue...")
-        for section in TEXT_DATA:
+        for section in self.romType.textDataRegions:
             i = section[0]
-            dataType = TextType.Normal
-            if section[0] in {0x210000, 0x210652, 0x210b86}:
-                dataType = TextType.Coffee
-            elif section[0] == 0x21413f:
-                dataType = TextType.Staff
+            dataType = self.romType.dataTypeOverride.get(i, TextType.Normal)
             while i < section[1]:
                 block = i + 0xc00000
                 self.dialogue[block], i = self.getText(i, None, dataType)
@@ -362,7 +366,7 @@ class CCScriptWriter:
             self.loadCoilSnakeDialogue()
 
         # Find the special pointed-to locations.
-        for p in SPECIAL_POINTERS:
+        for p in self.romType.specialPointers:
             address = ""
             i = p
             while i < p + 4:
@@ -391,7 +395,7 @@ class CCScriptWriter:
             self.dataFiles[block] = "data_{0:0>2}".format(k // 100)
 
         # Add special pointer locations.
-        for p in SPECIAL_POINTERS:
+        for p in self.romType.specialPointers:
             address = ""
             i = p
             while i < p + 4:
@@ -401,7 +405,7 @@ class CCScriptWriter:
             m = self.dataFiles[address]
             h = hex(address)
             self.specialPointers[p] = "[{{e({}.l_{})}}]".format(m, h)
-        for a in ASM_POINTERS:
+        for a in self.romType.asmPointers:
             if self.data[a + 3] == 0x85:
                 address = FromSNES("{} {} {} {}".format(
                                    FormatHex(self.data[a + 1]),
@@ -466,7 +470,6 @@ class CCScriptWriter:
 
     # Performs various replacements on the dialogue blocks.
     def processDialogue(self):
-
         print("Processing dialogue...")
         f = self.replaceWithLabel
         for block in self.dialogue: # pylint: disable=consider-using-dict-items
@@ -479,7 +482,7 @@ class CCScriptWriter:
                            b)
 
             # Replace all pointers with their label form.
-            for p in PATTERNS:
+            for p in self.romType.patterns:
                 try:
                     b = re.sub(p, f, b)
                 except (IndexError, KeyError):
@@ -487,16 +490,15 @@ class CCScriptWriter:
 
             # Replace control codes and more with CCScript syntax.
             if not self.raw:
-                for r in REPLACE:
+                for r in self.romType.replacements:
                     b = b.replace(r[0], r[1])
-                for r in RE_REPLACE:
+                for r in self.romType.reReplacementPatterns:
                     b = re.sub(r, self.replaceWithCCScript, b)
 
             self.dialogue[block][0] = b
 
     # Outputs the processed dialogue to the specified output directory.
     def outputDialogue(self, outputCoilSnake=False):
-
         # Initialize the output directory.
         print("Writing data...")
         if not os.path.exists(self.outputDirectory):
@@ -553,7 +555,6 @@ class CCScriptWriter:
 
     # Modifies the contents of a CoilSnake project to point to the new values.
     def outputToCoilSnakeProject(self):
-
         print("Modifying CoilSnake project...")
         o = os.path.join(self.outputDirectory, os.path.pardir)
         # pylint: disable=too-many-nested-blocks
@@ -609,7 +610,6 @@ class CCScriptWriter:
     # specifies whether the data block is a normal block, a coffee scene type
     # block or a staff list block.
     def getText(self, i, stop=None, dataType=TextType.Normal):
-
         start = i
         stop = stop or 0xFFFF_FFFF
 
@@ -623,7 +623,7 @@ class CCScriptWriter:
         block, end = fn(i, stop)
 
         # Check if it's referencing a location in memory.
-        for pattern in PATTERNS:
+        for pattern in self.romType.patterns:
             matches = re.findall(pattern, block)
             for match in matches:
                 pointer = match[1].strip()
@@ -649,8 +649,8 @@ class CCScriptWriter:
             breakOut = False
 
             # Check if it's a control code.
-            if c <= 0x30:
-                code = CONTROL_CODES[c]
+            if c < 0x20:
+                code = self.romType.controlCodeLengthTable[c]
                 if isinstance(code, int):
                     length = code
                 else:
@@ -672,14 +672,10 @@ class CCScriptWriter:
                 elif c in {0x02, 0x0A}:
                     breakOut = True
                 elif self.splitjumps:
-                    if BRANCHING_CODES_RE.match(ccText):
+                    if self.romType.branchingCodeRe.match(ccText):
                         breakOut = True
-            # Check if it's a special character.
-            elif c in {0x52, 0x8b, 0x8c, 0x8d}:
-                ccText = f"[{FormatHex(c)}]"
-            # Looks like it's a normal character.
             else:
-                ccText = chr(c - 0x30)
+                ccText = self.romType.byteToEncodedCharacter(c, TextType.Normal)
 
             blockParts.append(ccText)
             if breakOut:
@@ -716,7 +712,7 @@ class CCScriptWriter:
                 ccText = "[ 09 ]"
             # Looks like it's a normal character.
             else:
-                ccText = chr(c - 0x30)
+                ccText = self.romType.byteToEncodedCharacter(c, TextType.Coffee)
 
             blockParts.append(ccText)
             if breakOut:
@@ -760,7 +756,6 @@ class CCScriptWriter:
 
     # Gets the length of a control code with variable length.
     def getLength(self, i):
-
         c = self.data[i - 1]
         combos = {}
         if c == 0x09:
@@ -820,10 +815,9 @@ class CCScriptWriter:
 
     # Replaces the compressed text control codes with their values.
     def replaceCompressedText(self, matchObj):
-
         bank = int(matchObj.groups()[0], 16) - 0x15
         idx = int(matchObj.groups()[1], 16)
-        p = COMPRESSED_TEXT_PTRS + (bank * 0x100 + idx) * 4
+        p = self.romType.compressedTextPtrs + (bank * 0x100 + idx) * 4
         pointer = self.data[p:p + 4]
         pointer.reverse()
         pointer = int(reduce(lambda x, y: (x << 8) | y, pointer)) - 0xc00000
@@ -835,7 +829,6 @@ class CCScriptWriter:
 
     # Replaces the control code's pointer(s) with labels instead.
     def replaceWithLabel(self, matchObj):
-
         prefix = matchObj.groups()[0]
         if len(matchObj.groups()) < 3:
             pointer = matchObj.groups()[1]
@@ -870,10 +863,9 @@ class CCScriptWriter:
 
     # Replace with CCScript syntax.
     def replaceWithCCScript(self, matchObj):
-
         cc, *valueStrs = matchObj.groups()
         values = [FromSNES(v) for v in valueStrs]
-        template = RE_REPLACE_TARGETS.get(cc)
+        template = self.romType.reReplacementTargets.get(cc)
         assert template
         return template.format(*values)
 
