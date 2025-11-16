@@ -879,9 +879,8 @@ def main():
         start = time.time()
 
         # Get the input and output files from the terminal.
-        parser = argparse.ArgumentParser(description="Extracts the dialogue "
-                                         "from EarthBound and outputs it into a"
-                                         " CCScript file.")
+        parser = argparse.ArgumentParser(description="Extracts the dialogue from EarthBound or "
+                                         "MOTHER 2 and outputs it into CCScript files.")
         parser.add_argument("rom", metavar="INPUT",
                             type=argparse.FileType("rb"),
                             help="the source ROM file")
