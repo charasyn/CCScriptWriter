@@ -745,7 +745,7 @@ class CCScriptWriter:
                 
                 # Text character (flyover encoding)
                 elif c == 0x80:
-                    block += " {{short 0x80{}}} ".format(FormatHex(self.data[i]))
+                    block += "[ 80 {} ]".format(FormatHex(self.data[i]))
                     i += 1
                 
                 # Everything else is control codes I guess
